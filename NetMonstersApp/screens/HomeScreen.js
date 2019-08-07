@@ -40,7 +40,7 @@ export default function HomeScreen() {
           </View>
 
           <Text style={styles.getStartedText}>
-            Hi Aaron!
+            Hi World!
           </Text>
         </View>
 
