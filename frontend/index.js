@@ -58,7 +58,7 @@ function create_plane_mesh(img, size)
   return model
 }
 
-async function create_model(data)
+async function create_player_model(data)
 {
   console.log("Creating Pokemon");
   const front_img = await get_sprite_texture(data.sprites.front);
@@ -69,11 +69,30 @@ async function create_model(data)
 
   var flipped = false;
   var swapped = false;
-  var rotation = 0;
 
-  var model = { front, back, flipped, swapped, rotation }
+  var model = { front, back, flipped, swapped }
   return model;
 }
+
+
+async function create_player_object(id, x_pos, y_pos, z_pos, scene)
+{
+    const player_data = await get_pokeomon_from_server(id);
+    var player_model = await create_player_model(player_data);
+
+    var position = new threejs.Vector3(x_pos, 0.45*player_data.height, z_pos)
+    var velocity = new threejs.Vector3(0, 0, 0)
+
+    // player_model.front.position.set(position)
+    player_model.front.position.add(position)
+    player_model.back.position.set(0, -1000, 0)
+
+    scene.add(player_model.front);
+    scene.add(player_model.back);
+
+    return { player_model, player_data, position, velocity}
+}
+
 
 async function main()
 {
@@ -86,7 +105,7 @@ async function main()
   const renderer = new threejs.WebGLRenderer({ canvas: canvas });
   const camera = new threejs.PerspectiveCamera( 75, window.innerWidth/window.innerHeight, 0.1, 1000 );
 
-  var period = 25; // rotation time in seconds
+  var period = 40; // rotation time in seconds
   var clock = new threejs.Clock();
   var matrix = new threejs.Matrix4(); // Pre-allocate empty matrix for performance. Don't want to make one of these every frame.
   
@@ -97,50 +116,46 @@ async function main()
   const arena = await create_arena();
   scene.add(arena);
 
-  // Create Player
-  var player1_id = 890;
-  // var player1_id = Math.floor(Math.random() * 897) + 1;
-  const player1_data = await get_pokeomon_from_server(player1_id);
-  var player1_model = await create_model(player1_data);
-  player1_model.front.position.set( 25, player1_data.height*0.45, 0)
-  player1_model.back.position.set( 25, player1_data.height*-100, 0)
-  scene.add(player1_model.front);
-  scene.add(player1_model.back);
+  var id = 6;
+  // var id = Math.floor(Math.random() * 897) + 1;
+  var player1 = await create_player_object(id, 25, 0.45, 0, scene)
   
+  var id = 3;
+  // var id = Math.floor(Math.random() * 897) + 1;
+  var player2 = await create_player_object(id, -25, 0.45, 0, scene)
+
+  var id = 9;
+  // var id = Math.floor(Math.random() * 897) + 1;
+  var player3 = await create_player_object(id, 0, 0.45, 25, scene)
+
+  var id = 150;
+  // var id = Math.floor(Math.random() * 897) + 1;
+  var player4 = await create_player_object(id, 0, 0.45, 0, scene)
+
   
-  var player2_id = 9;
-  // var player2_id = Math.floor(Math.random() * 897) + 1;
-  const player2_data = await get_pokeomon_from_server(player2_id);
-  var player2_model = await create_model(player2_data)
-  player2_model.front.position.set(-25, player2_data.height*0.45, 0)
-  // player2_model.front.rotation.y = Math.PI;
-  player2_model.back.position.set(-25, player2_data.height*-100, 0)
-  scene.add(player2_model.front);
-  scene.add(player2_model.back);
-
-  var player3_id = 6;
-  // var player3_id = Math.floor(Math.random() * 897) + 1;
-  const player3_data = await get_pokeomon_from_server(player3_id);
-  var player3_model = await create_model(player3_data)
-  player3_model.front.position.set(0, player3_data.height*0.45, -25)
-  // player3_model.front.rotation.y = Math.PI;
-  player3_model.back.position.set(0, player3_data.height*-100, -25)
-  scene.add(player3_model.front);
-  scene.add(player3_model.back);
 
 
+  var camera_angle = 0;
+  
+  var players = { player1, player2, player3, player4 };
+
+  var max_height = 15
+  for (var player in players)
+  {
+    if (players[player].player_data.height > max_height)
+    {
+      max_height = players[player].player_data.height
+      console.log(max_height)
+    }
+  }
 
   // Add objects
-  // const cube = await create_cube();
-  camera.position.z = 250;
-  camera.position.y = camera.position.z * 0.375;
+  camera.position.z = max_height * 3;
+  camera.position.y = camera.position.z * 0.5;
 
-  const camera_angle = 0;
-  
-  var models = { player1_model, player2_model, player3_model };
   var render_objs = { renderer, canvas, scene, camera, period, clock, matrix, camera_angle };
 
-  render({ models, render_objs });
+  render({ players, render_objs });
 }
 
 async function run() {
