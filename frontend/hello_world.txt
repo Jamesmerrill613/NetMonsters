@@ -1,0 +1,11 @@
+npm init -y
+
+npm test
+npm install --global yarn
+
+yarn install <-- install all package dependencies
+
+yarn / npm <-- basically the same thing.
+
+yarn add -D snowpack <-- add grabs and installs a package
+    -D dev dependencies
