@@ -1,5 +1,11 @@
-import * as threejs from 'three';
+import * as THREE from 'three';
 import { Path } from "three";
+import { detect_collision_between_two_spheres, detect_arena_collision, apply_player_on_attack_collision } from './collisions';
+import { resolve_player_actions } from './player_actions';
+import { resolve_player_attacks, update_attack_velocity, apply_particle_on_particle_collision } from './attacks';
+import { Player } from './models/player';
+
+var time_to_select_targets = 0;
 
 function auto_resize(renderer, canvas, camera)
 {
@@ -11,260 +17,213 @@ function auto_resize(renderer, canvas, camera)
   }
 }
 
-function flip_model(player_object, camera_angle)
-{
-  var model_angle = Math.atan2(player_object.orientation.z, player_object.orientation.x);
-  var relative_angle = model_angle + camera_angle;
-  if (relative_angle >= Math.PI){relative_angle -= 2*Math.PI}
-  if (relative_angle < -Math.PI){relative_angle += 2*Math.PI}
-
-  var over_angle = Math.PI/8
-
-  // >90, <180, not flipped
-  if (((relative_angle >= Math.PI/2 + over_angle) || (relative_angle < -Math.PI/2 - over_angle)) && player_object.player_model.flipped) 
-  {
-    // console.log("flipping")
-    player_object.player_model.front.rotation.y += Math.PI;
-    player_object.player_model.flipped = false;
-  }
-  // <0, >-90, flipped
-  else if ((relative_angle < Math.PI/2 - over_angle) && (relative_angle >= -Math.PI/2 + over_angle) && !player_object.player_model.flipped) 
-  {
-    // console.log("unflipping")
-    player_object.player_model.front.rotation.y += Math.PI;
-    player_object.player_model.flipped = true;
-  }
-}
-
-function swap_model(player_object, camera_angle)
-{
-  var model_angle = Math.atan2(player_object.orientation.z, player_object.orientation.x);
-  var relative_angle = model_angle + camera_angle;
-  if (relative_angle >= Math.PI){relative_angle -= 2*Math.PI}
-  if (relative_angle < -Math.PI){relative_angle += 2*Math.PI}
-  
-  var over_angle = Math.PI/8
-
-
-  // >120, <180, not flipped
-  if ((relative_angle < -1*Math.PI/4 - over_angle) && (relative_angle >= -3*Math.PI/4 + over_angle) && !player_object.player_model.swapped) 
-  // if ((relative_angle < 0) && !player_object.player_model.flipped) 
-  {
-    // console.log("swapping")
-    let temp = player_object.player_model.back.position.clone();
-    player_object.player_model.back.position.copy(player_object.player_model.front.position);
-    player_object.player_model.front.position.copy(temp.clone());
-    player_object.player_model.swapped = true;
-  }
-  // >-60 || <-120, flipped
-  else if (((relative_angle >= -1*Math.PI/4 + over_angle) || (relative_angle < -3*Math.PI/4 - over_angle)) && player_object.player_model.swapped) 
-  // else if ((relative_angle > 0) && player_object.player_model.flipped) 
-  {
-    // console.log("unswapping")
-    let temp = player_object.player_model.back.position.clone();
-    player_object.player_model.back.position.copy(player_object.player_model.front.position);
-    player_object.player_model.front.position.copy(temp);
-    player_object.player_model.swapped = false;
-  }
-}
-
-function update_player_position(player_object, rotation, camera_angle)
-{
-  // Update Rotation
-  player_object.player_model.front.rotation.y += rotation;
-  player_object.player_model.back.rotation.y = player_object.player_model.front.rotation.y + Math.PI;
-
-  // Update New Position
-  player_object.player_sphere.position.copy(player_object.position)
-  if (player_object.player_model.swapped) 
-  {
-    player_object.player_model.back.position.copy(player_object.position);
-  }
-  else 
-  {
-    player_object.player_model.front.position.copy(player_object.position);
-  }
-
-  // Flip/Swap Front/Back
-  flip_model(player_object, camera_angle);
-  swap_model(player_object, camera_angle);
-}
-
-function update_velocity(player_object, clock_delta)
-{
-  let max_s = player_object.player_data.speed/10
-
-  //Random velocity update (REPLACE WITH NETWORK SELECTION)
-  let max = max_s;
-  let min = -max_s;
-  let delta_x = Math.random() * (max - min) + min;
-  let delta_z = Math.random() * (max - min) + min;
-  // let delta_x = 0
-  // let delta_z = 0
-  let delta_y = 0
-
-  // Flying type can update vertical velocity
-  if (player_object.player_data.type == 'flying' || player_object.player_data.sub_type == 'flying')
-  {
-    delta_y += Math.random() * (max - min) + min + 10;
-  }
-
-  // Player is above the surface
-  if (player_object.position.y > player_object.player_data.height*0.5)
-  {
-    delta_y += -10
-  }
-
-
-  // Update rate controlled by clock
-  delta_x *= clock_delta;
-  delta_z *= clock_delta;
-  delta_y *= clock_delta;
-
-  // Apply Update
-  player_object.velocity.add(new threejs.Vector3(delta_x, delta_y, delta_z))
-  player_object.velocity.add(player_object.position.clone().normalize().multiplyScalar(-max_s*clock_delta))
-
-  console.log(player_object.velocity)
-  player_object.velocity.clampLength(0, player_object.player_data.speed);
-}
-
-function detect_collision_arena_wall(player_object, clock_delta, arena_radius)
-{
-  var new_position = player_object.position.clone().add(player_object.velocity.clone().multiplyScalar(clock_delta))
-  // Wall Collision
-  if (new_position.length() + player_object.player_data.height*0.5 > arena_radius)
-  {
-    //true
-    new_position.clampLength(0, arena_radius - player_object.player_data.height*0.5)
-    player_object.velocity.add(player_object.velocity.clone().multiplyScalar(-1).projectOnVector(new_position))
-    // player_object.velocity.multiplyScalar(-0.5)
-    // console.log("Wall collision")
-    // console.log(new_position)
-  }
-  // Floor Collision
-  if (new_position.y < player_object.player_data.height*0.5)
-  {
-    new_position.y = player_object.player_data.height*0.5
-    player_object.velocity.y = -player_object.velocity.y*0.5
-    // console.log("Floor collision")
-    // console.log(new_position)
-  }
-    player_object.position.copy(new_position)
-}
-
-function detect_collision_players(players)
+function detect_collisions(players, attacks, scene)
 {
   for (let i = 0; i < players.length; i++)
   {
+    // Players vs Players
     for (let j = i+1; j< players.length; j++)
     {
-      var pj = players[i].position.clone().sub(players[j].position)
-      if (pj.length() < players[i].player_data.height/2 + players[j].player_data.height/2)
+      if (Player.detect_player_on_player_collision(players[i], players[j]))
       {
-        // console.log("COLLISION")
-        // console.log(players[i].velocity)
-        // console.log(players[j].velocity)
-        //collision
-        var pi = pj.clone().multiplyScalar(-1)
-        let vi_pro_pi = players[i].velocity.clone().projectOnVector(pi);
-        let vj_pro_pj = players[j].velocity.clone().projectOnVector(pj)
-        let m_ij = players[i].player_data.weight + players[j].player_data.weight
-        players[i].velocity.add(vj_pro_pj.multiplyScalar(2*players[j].player_data.weight/m_ij))
-        players[i].velocity.sub(vi_pro_pi.multiplyScalar(2*players[i].player_data.weight/m_ij))
-
-        players[j].velocity.add(vi_pro_pi.multiplyScalar(2*players[i].player_data.weight/m_ij))
-        players[j].velocity.sub(vj_pro_pj.multiplyScalar(2*players[j].player_data.weight/m_ij))
-        // console.log(players[i].velocity)
-        // console.log(players[j].velocity)
-
-
-        // Update Position
-        let overlap = pj.clone().normalize().multiplyScalar(pj.length() - (players[i].player_data.height/2 + players[j].player_data.height/2))
-        players[i].position.add(overlap.clone().multiplyScalar(-0.51))
-        players[j].position.add(overlap.clone().multiplyScalar(0.51))
+        // console.log("Applying collision between", players[i].name, players[j].name)
+        Player.apply_player_on_player_collision(players[i], players[j]);
+      }
+    }
+    // Players vs Attacks
+    for (let j = 0; j < attacks.length; j++)
+    {
+        if (players[i].player_number == attacks[j].player_number) { continue; }
+        if (detect_collision_between_two_spheres(players[i], attacks[j]))
+        {
+            // console.log("%s hit by %s", players[i].name, attacks[j].name)
+            apply_player_on_attack_collision(players[i], attacks[j]);
+            attacks[j].active = false;
+            // attacks[j].destroy(scene)
+            // attacks.splice(j, 1);
+            // j--;
+        }
+    }
+  }
+  // Attacks vs Attacks
+  for (let i = 0; i < attacks.length; i++)
+  {
+    for (let j = i+1; j< attacks.length; j++)
+    {
+      if (attacks[i].move_id == attacks[j].move_id && attacks[i].player_number == attacks[j].player_number) { continue; }
+      if (detect_collision_between_two_spheres(attacks[i], attacks[j]))
+      {
+        // Ignore collision between matching types
+        // console.log("Attacks collided!")
+        apply_particle_on_particle_collision(attacks[i], attacks[j]);
       }
     }
   }
 }
 
-function update_orientation(player_object, clock_delta)
-{
-  let max = 20;
-  let min = -20;
-  let delta_x = Math.random() * (max - min) + min;
-  let delta_z = Math.random() * (max - min) + min;
-  let delta_y = Math.random() * (max - min) + min;
-  delta_x *= clock_delta;
-  delta_y *= clock_delta;
-  delta_z *= clock_delta;
-  var origin_bias = (player_object.position.clone()).multiplyScalar(-clock_delta)
-
-  let delta = new threejs.Vector3(delta_x, delta_y, delta_z).add(origin_bias)
-  // let delta = new threejs.Vector3(0.01, 0, 0.01)
-  player_object.orientation.add(delta).normalize()
-}
-
-function draw_orientation_line(player_object, scene)
-{
-  scene.remove(player_object.orientation_line)
-
-  let relative_orientation = player_object.position.clone().add(player_object.orientation.clone().multiplyScalar(20))
-  const geometry = new threejs.BufferGeometry().setFromPoints([player_object.position, relative_orientation]);
-  const material = new threejs.LineBasicMaterial( { color: 0x0000ff } );
-  player_object.orientation_line = new threejs.Line( geometry, material );
-
-  scene.add(player_object.orientation_line)
-}
-
 var rotate_once = true;
 
+
+// Cameras:
+//    Orbit Origin Cam
+//    Fly over
+//    Pan over
+//    Follow
+//    Static
+
+function update_camera(clock_delta, camera, players, arena)
+{
+  // camera.position.copy(new THREE.Vector3(0, 3*arena.height, -1))
+  // camera.target = new THREE.Vector3(0, 0, 0)
+  // camera.lookAt(camera.target)
+  // return;
+    switch(camera.mode)
+    {
+        case "orbit":
+            // Rotate Camera
+            let rotation = clock_delta * 2 * Math.PI / camera.orbit_period;
+            camera.orbit_matrix.makeRotationY(rotation);
+            camera.position.applyMatrix4(camera.orbit_matrix);
+            camera.orbit_pos = camera.position.clone();
+            let target = new THREE.Vector3();
+            for (let player of players) { target.add(player.position) }
+            target.multiplyScalar(1/players.length)
+            camera.target = target;
+            // camera.target = players[camera.my_target].position.clone().add(players[camera.my_target].orientation.clone().multiplyScalar(50))
+
+            break;
+        case "fly":
+            break;
+        case "pan":
+            break;
+        case "follow":
+            let new_pos = players[camera.my_target].position.clone();
+            new_pos.sub(players[camera.my_target].orientation.clone().multiplyScalar(20));
+            new_pos.sub(players[camera.my_target].orientation.clone().multiplyScalar(players[camera.my_target].height).applyAxisAngle( new THREE.Vector3(0, 1, 0), Math.PI/2));
+            new_pos.clampLength(0, arena.radius);
+            if (new_pos.y < 0.01) { new_pos.y = 0.01; }
+            camera.position.copy(new_pos.clone());
+            camera.position.y += players[camera.my_target].height;
+            camera.target = players[camera.my_target].position.clone().add(players[camera.my_target].orientation.clone().multiplyScalar(50))
+            break;
+        case "static":
+            break;
+        default:
+            console.log("Missing Camera Mode!");
+
+    }
+
+    camera.time_between_modes -= clock_delta;
+    if (camera.time_between_modes <= 0)
+    {
+        camera.time_between_modes = camera.mode_cycle_period;
+        let new_mode = Math.floor(Math.random() * 5)
+        // new_mode = 3;
+        let target = Math.floor(Math.random() * players.length)
+        switch(new_mode)
+        {
+            case 0:
+                camera.mode = "orbit";
+                let max_h = arena.height;
+                let min_h = arena.face_height + arena.bleacher_height
+                camera.orbit_pos.y = Math.random() * (max_h-min_h) + min_h;
+                camera.position.copy(camera.orbit_pos.clone());
+                break;
+            case 1:
+                // camera.mode = "fly";
+                break;
+            case 2:
+                // camera.mode = "pan";
+                break;
+            case 3:
+                camera.mode = "follow";
+                camera.my_target = target
+                break;
+            case 4:
+                // camera.mode = "static";
+                break;
+        }
+    }
+
+    camera.lookAt(camera.target);
+}
+
+
+
 function render(args) {
-  const { players, render_objs } = args;
+  const { players, attacks, render_objs } = args;
   window.requestAnimationFrame(() => render(args));
   auto_resize(render_objs.renderer, render_objs.canvas, render_objs.camera);
   
   let clock_delta = render_objs.clock.getDelta();
+  if (clock_delta > 0.25) clock_delta = 0.25; // protection for changing tabs
 
-  // Rotate Camera
-  var rotation = clock_delta * 2 * Math.PI / render_objs.period;
-  
-  // var rotation = 0
-  // if (rotate_once) {
-  //   rotation = Math.PI/2
-  //   rotate_once = false;
-  // }
-  
-  render_objs.camera_angle += rotation;
-  // console.log(render_objs.camera_angle);
-  if (render_objs.camera_angle > Math.PI) {
-    render_objs.camera_angle -= 2*Math.PI;
+  update_camera(clock_delta, render_objs.camera, players, render_objs.arena)
+
+  // Set Targets
+  time_to_select_targets -= clock_delta;
+  if (time_to_select_targets <= 0)
+  {
+    for (let i = 0; i < players.length; i++)
+    {
+        if (players[i].current_action != "none") { continue; }
+        let min_distance = 99999;
+        for (let j = 0; j < players.length; j++)
+        {
+            if (i == j) { continue; }
+            let distance = players[i].position.clone().sub(players[j].position.clone()).length()
+            if (distance < min_distance)
+            {
+            min_distance = distance;
+            players[i].targeting = j;
+            }
+        }
+        // let r = Math.floor(Math.random() * players.length)
+        // if (player.player_number != players[r].player_number) player.targeting = r;
+        }
+        time_to_select_targets = 3.0
   }
-  // console.log(render_objs.camera_angle/Math.PI *180);
-  render_objs.matrix.makeRotationY(rotation);
-  render_objs.camera.position.applyMatrix4(render_objs.matrix);
-  render_objs.camera.lookAt(0, 10, 0);
-  // console.log(render_objs.camera.position)
 
 
   // Move Pokemon
-  for (var player of players)
+  resolve_player_actions(players, clock_delta); // Picks move/attack updates velocity
+  resolve_player_attacks(players, clock_delta, attacks, render_objs.scene) //Creates new attacks if any
+  for (let player of players)
   {
     // variable updates
-    update_velocity(player, clock_delta);
-    update_orientation(player, clock_delta);
-
+    player.update_velocity(clock_delta);
+    
     // Determine New Position
-    detect_collision_arena_wall(player, clock_delta, render_objs.arena.radius)
+    detect_arena_collision(player, render_objs.arena)
 
+    // Update Orientation
+    if (players.length > 1) {player.set_orientation(players[player.targeting].position.clone()); }
+    else { player.set_orientation(new THREE.Vector3(0, player.position.y*2, 0));}
 
     // render updates
-    update_player_position(player, rotation, render_objs.camera_angle);
-    draw_orientation_line(player, render_objs.scene)
+    let angle = -1*Math.atan2(render_objs.camera.position.z - render_objs.camera.target.z, render_objs.camera.position.x - render_objs.camera.target.x) + Math.PI/2;
+    if (angle > Math.PI) { angle -= 2*Math.PI; }
+    player.update_position(clock_delta, angle); // Apply velocity to player position
+    player.draw_orientation_line(render_objs.scene)
+    player.draw_velocity_line(render_objs.scene)
 
   }
-  detect_collision_players(players)
 
+
+  for(let i = 0; i < attacks.length; i++)
+  {
+    update_attack_velocity(attacks[i], clock_delta, render_objs.scene);
+    detect_arena_collision(attacks[i], render_objs.arena)
+    if (!attacks[i].active)
+    {
+      attacks[i].destroy(render_objs.scene)
+      attacks.splice(i, 1);
+      i--;
+    }
+  }
+  detect_collisions(players, attacks, render_objs.scene) // Detect collisions, update position and velocity as necessary
+
+  // console.log(render_objs.renderer.info.memory.geometries)
   render_objs.renderer.render(render_objs.scene, render_objs.camera);
 };
 
